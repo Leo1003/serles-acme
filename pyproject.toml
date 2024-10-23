@@ -1,0 +1,53 @@
+[tool.poetry]
+name = "serles-acme"
+version = "1.1.0"
+description = "A tiny ACME (Automatic Certificate Management Environment) Server that passes actual issuance off to an existing PKI Certificate Authority."
+authors = [
+    "Daten-Verarbeitung-Tirol GmbH <project.serles-acme@tirol.gv.at>",
+    "Leo Chen <leo881003@gmail.com>",
+]
+license = "GPL-3.0-only"
+repository = "https://github.com/dvtirol/serles-acme"
+documentation = "https://serles-acme.readthedocs.io/"
+readme = "README.rst"
+keywords = ["pki", "ejbca", "acme", "server", "certbot"]
+classifiers = [
+    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+    "Programming Language :: Python :: 3.9",
+]
+packages = [
+    { include = "serles" },
+]
+include = [
+    "bin/serles",
+]
+
+[tool.poetry.urls]
+"Bug Tracker" = "https://github.com/dvtirol/serles-acme/issues"
+"Documentation" = "https://serles-acme.readthedocs.io/"
+"Source Code" = "https://github.com/dvtirol/serles-acme"
+
+[tool.poetry.scripts]
+serles = "serles.__main__:main"
+
+[tool.poetry.dependencies]
+python = "^3.9"
+flask = "^3.0.3"
+flask-restful = "^0.3.10"
+flask-sqlalchemy = "^3.1.1"
+requests = "^2.32.3"
+jwcrypto = "^1.5.6"
+cryptography = "^43.0.3"
+dnspython = "^2.7.0"
+zeep = "^4.3.1"
+
+[tool.poetry.group.dev.dependencies]
+# for bin/serles:
+gunicorn = "^23.0.0"
+
+[tool.poetry.group.doc.dependencies]
+docutils = "^0.21.2"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
