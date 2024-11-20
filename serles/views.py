@@ -1,3 +1,4 @@
+import ipaddress
 import jwcrypto.jwk  # fedora package: python3-jwcrypto.noarch
 import jwcrypto.jws
 
@@ -121,12 +122,21 @@ class NewOrder(Resource):
                 raise ACMEError("identifier not valid", 400, "malformed")
             type_ = identifier.get("type")
             value = identifier.get("value")
-            if type_ != "dns":
+            try:
+                ident_type = IdentifierTypes(type_)
+            except ValueError:
                 raise ACMEError(
-                    "can only do 'dns' type identifiers", 400, "rejectedIdentifier"
+                    "unsupported identifier type", 400, "rejectedIdentifier"
                 )
+            if ident_type == IdentifierTypes.ip:
+                try:
+                    ipaddress.ip_address(value)  # raises on invalid IP
+                except ValueError:
+                    raise ACMEError(
+                        "invalid IP address", 400, "rejectedIdentifier"
+                    )
 
-            identifier = Identifier(type=IdentifierTypes(type_), value=value)
+            identifier = Identifier(type=ident_type, value=value)
             db.session.add(identifier)
             challenges = [
                 Challenge(type=ChallengeTypes.http_01),

@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from cryptography import x509  # python3-cryptography.x86_64
 from cryptography.hazmat.backends import default_backend as x509_backend
 from cryptography.hazmat.primitives import serialization
+from cryptography.x509 import SubjectAlternativeName
 
 from .utils import get_ptr, ip_in_ranges, normalize, ber_parse
 from .configloader import get_config
@@ -22,6 +23,30 @@ from .exceptions import ACMEError
 config = {}
 backend = None
 
+class SimpleIdentifier:
+    type: IdentifierTypes
+    value: str
+
+    def ejbca_identifier(self):
+        if self.type == IdentifierTypes.dns:
+            return f"DNSNAME={self.value}"
+        elif self.type == IdentifierTypes.ip:
+            return f"IPAddress={self.value}"
+        else:
+            return None
+
+    def __init__(self, type: IdentifierTypes, value: str):
+        self.type = type
+        self.value = value
+
+    def __eq__(self, other):
+        if isinstance(other, SimpleIdentifier):
+            return self.type == other.type and self.value == other.value
+        else:
+            return False
+
+    def __str__(self) -> str:
+        return f"{str(self.type).upper()}:{self.value}"
 
 def init_config():
     global config, backend
@@ -229,7 +254,7 @@ def alpn_challenge(challenge):  # RFC 8737 §3
     return None, None  # no error occurred :)
 
 
-def check_csr_and_return_cert(csr_der, order):
+def check_csr_and_return_cert(csr_der: bytes, order: Order):
     """ validate CSR and pass to backend
 
     Checks that the CSR only contains domains from previously validated
@@ -247,9 +272,18 @@ def check_csr_and_return_cert(csr_der, order):
     """
     csr = x509.load_der_x509_csr(csr_der, x509_backend())
     try:
-        alt_names = csr.extensions.get_extension_for_oid(
+        san: SubjectAlternativeName = csr.extensions.get_extension_for_oid(
             x509.oid.ExtensionOID.SUBJECT_ALTERNATIVE_NAME
-        ).value.get_values_for_type(x509.DNSName)
+        ).value
+        alt_names_dns = san.get_values_for_type(x509.DNSName)
+        alt_names_ip = san.get_values_for_type(x509.IPAddress)
+        alt_names: list[SimpleIdentifier] = [
+            SimpleIdentifier(IdentifierTypes.dns, dns)
+                for dns in alt_names_dns
+        ] + [
+            SimpleIdentifier(IdentifierTypes.ip, ip)
+                for ip in alt_names_ip
+        ]
     except:
         alt_names = []
     try:
@@ -259,14 +293,15 @@ def check_csr_and_return_cert(csr_der, order):
     except IndexError:
         # certbot does not set Subject Name, only SANs
         # https://github.com/certbot/certbot/issues/4922
-        common_name = alt_names[0]
+        common_name = alt_names[0].value
 
-    if not common_name in alt_names:  # chrome ignores CN, so write CN to SAN
-        alt_names.insert(0, common_name)
+    common_name_ident = SimpleIdentifier(IdentifierTypes.dns, common_name)
+    if not common_name_ident in alt_names:  # chrome ignores CN, so write CN to SAN
+        alt_names.insert(0, common_name_ident)
 
     # since we pass the CN and SANs to the backend, make sure the client only
     # specified those that we verified before:
-    order_identifiers = {ident.value for ident in order.identifiers}
+    order_identifiers = {SimpleIdentifier(ident.type, ident.value) for ident in order.identifiers}
     csr_identifiers = {*alt_names}  # convert list to set
     if order_identifiers != csr_identifiers:
         raise ACMEError(f"{order_identifiers} != {csr_identifiers}", 400, "badCSR")
