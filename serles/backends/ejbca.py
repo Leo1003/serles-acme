@@ -7,6 +7,7 @@ from cryptography import x509  # python3-cryptography.x86_64
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.serialization import pkcs7
 from cryptography.hazmat.backends import default_backend as x509_backend
+from serles.challenge import IdentifierTypes, SimpleIdentifier
 
 
 class EjbcaBackend:
@@ -73,7 +74,7 @@ class EjbcaBackend:
         self.userData = self.client.get_type("ns0:userDataVOWS")
 
     def sign(self, csr, subjectDN, subjectAltNames, email):
-        subjectAltName = ",".join(name.ejbca_identifier() for name in subjectAltNames)
+        subjectAltName = ",".join(ejbca_identifier(name) for name in subjectAltNames)
 
         csr_obj = x509.load_pem_x509_csr(csr, x509_backend())
         csr_der = csr_obj.public_bytes(serialization.Encoding.DER)
@@ -141,3 +142,11 @@ def pkcs7_to_pem_chain(pkcs7_input):
             for cert in certs
         ]
     )
+
+def ejbca_identifier(ident: SimpleIdentifier):
+    if ident.type == IdentifierTypes.dns:
+        return f"DNSNAME={ident.value}"
+    elif ident.type == IdentifierTypes.ip:
+        return f"IPAddress={ident.value}"
+    else:
+        return None

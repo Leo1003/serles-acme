@@ -27,14 +27,6 @@ class SimpleIdentifier:
     type: IdentifierTypes
     value: str
 
-    def ejbca_identifier(self):
-        if self.type == IdentifierTypes.dns:
-            return f"DNSNAME={self.value}"
-        elif self.type == IdentifierTypes.ip:
-            return f"IPAddress={self.value}"
-        else:
-            return None
-
     def __init__(self, type: IdentifierTypes, value: str):
         self.type = type
         self.value = value
