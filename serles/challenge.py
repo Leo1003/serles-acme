@@ -6,6 +6,8 @@ import base64
 import requests
 import jwcrypto.jwk  # fedora package: python3-jwcrypto.noarch
 import jwcrypto.jws
+import jwcrypto.jwt
+from jwcrypto.common import JWException
 import dns.resolver
 
 from datetime import datetime, timezone
@@ -45,7 +47,7 @@ def init_config():
     config, backend = get_config()
 
 
-def verify_challenge(challenge):
+def verify_challenge(challenge, payload):
     """ verify a challenge
 
     Args:
@@ -73,6 +75,8 @@ def verify_challenge(challenge):
         error, info = dns_challenge(challenge)
     elif challenge.type == ChallengeTypes.tls_alpn_01:
         error, info = alpn_challenge(challenge)
+    elif challenge.type == ChallengeTypes.x_ssot_jwt_01:
+        error, info = ssot_jwt_challenge(challenge, payload)
     else:
         challenge.status = ChallengeStatus.invalid
         db.session.commit()
@@ -245,6 +249,39 @@ def alpn_challenge(challenge):  # RFC 8737 §3
 
     return None, None  # no error occurred :)
 
+def ssot_jwt_challenge(challenge, payload):
+    """ verify a X-SSOT-JWT-01 Challenge
+
+    Args:
+        challenge (Challenge): The X-SSOT-JWT-01 challenge to verify.
+
+    Returns:
+        tuple(str,str): problem detail type of the error and  textual
+        description, or (None,None).
+    """
+    if config["ssot_jwks"] is None:
+        return "incorrectResponse", "invalid JWT"
+
+    try:
+        token = payload.get("jwt")
+        jwt = jwcrypto.jwt.JWT(jwt=token, key=config["ssot_jwks"])
+    except KeyError:
+        return "incorrectResponse", "missing jwt in payload"
+    except JWException:
+        return "incorrectResponse", "invalid JWT"
+
+    try:
+        claims = jwt.claims
+        expected_ident = challenge.authorization.identifier.serialize()
+        ident = claims.get("identifier")
+        if ident.type != expected_ident.type and ident.value != expected_ident.value:
+            return "incorrectResponse", "identifier mismatch"
+        if claims.get("token") != key_authorization(challenge).encode('utf-8'):
+            return "incorrectResponse", "token mismatch"
+    except KeyError:
+        return "incorrectResponse", "missing claims in JWT"
+
+    return None, None
 
 def check_csr_and_return_cert(csr_der: bytes, order: Order):
     """ validate CSR and pass to backend

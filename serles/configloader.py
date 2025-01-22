@@ -2,6 +2,7 @@ import os
 import importlib
 import ipaddress
 from configparser import ConfigParser
+from jwcrypto.jwk import JWKSet, InvalidJWKValue
 
 _config = None
 _backend = None
@@ -122,5 +123,17 @@ def load_config_and_backend(filename):
         config["verifyPTR"] = cparser["serles"].getboolean("verifyPTR", fallback=False)
     except ValueError:
         raise ConfigError("[serles]verifyPTR= must be 'true' or 'false'") from None
+
+    try:
+        jwks_path = cparser["serles"]["ssot_jwks"]
+        with open(jwks_path, "r") as f:
+            jwks = f.read()
+        config["ssot_jwks"] = JWKSet.from_json(jwks)
+    except KeyError:
+        config["ssot_jwks"] = None
+    except OSError:
+        raise ConfigError("could not read [serles]ssot_jwks= file") from None
+    except InvalidJWKValue:
+        raise ConfigError("[serles]ssot_jwks= must be a valid JWKSet file") from None
 
     return config, backend

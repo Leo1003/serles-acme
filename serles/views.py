@@ -12,6 +12,7 @@ from .challenge import (
     verify_challenge,
     check_csr_and_return_cert,
 )
+from .configloader import get_config
 from .exceptions import ACMEError
 
 api = Api()
@@ -143,6 +144,9 @@ class NewOrder(Resource):
                 Challenge(type=ChallengeTypes.dns_01),
                 Challenge(type=ChallengeTypes.tls_alpn_01),
             ]
+            if get_config()["ssot_jwks"] is not None:
+                challenges.append(Challenge(type=ChallengeTypes.x_ssot_jwt_01))
+
             for c in challenges:
                 db.session.add(c)
             authz = Authorization(identifier=identifier, challenges=challenges)
@@ -311,7 +315,7 @@ class ChallengeMain(Resource):
             raise ACMEError("Unexpected Account ID", 403, "unauthorized")
         challenge.status = ChallengeStatus.processing
 
-        verify_challenge(challenge)  # sets challenge.status, raises on error
+        verify_challenge(challenge, g.payload)  # sets challenge.status, raises on error
 
         authid = challenge.authz_id
         return (
