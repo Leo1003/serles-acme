@@ -4,6 +4,7 @@ import socket
 import hashlib
 import base64
 import requests
+from ipaddress import ip_address
 import jwcrypto.jwk  # fedora package: python3-jwcrypto.noarch
 import jwcrypto.jws
 import jwcrypto.jwt
@@ -203,11 +204,18 @@ def alpn_challenge(challenge):  # RFC 8737 §3
 
     host = challenge.authorization.identifier.value
 
+    # RFC 8738 §6: the server MUST instead use the reverse mapping of the IP address
+    if challenge.authorization.identifier.type == IdentifierTypes.ip:
+        ip = ip_address(challenge.authorization.identifier.value)
+        sni_hostname = ip.reverse_pointer
+    else:
+        sni_hostname = challenge.authorization.identifier.value
+
     context = ssl.SSLContext()  # server may return self-signed cert here
     context.set_alpn_protocols([ALPN_PROTOCOL])
     try:
         with socket.create_connection((host, 443)) as sock, context.wrap_socket(
-            sock, server_hostname=host
+            sock, server_hostname=sni_hostname
         ) as ssock:
             remote_ip, *_ = ssock.getpeername()
 
@@ -231,9 +239,21 @@ def alpn_challenge(challenge):  # RFC 8737 §3
         san = cert.extensions.get_extension_for_oid(
             x509.oid.ExtensionOID.SUBJECT_ALTERNATIVE_NAME
         ).value
-        if len(san) != 1 or san[0].value != host:
+        if len(san) == 1:
+            if (challenge.authorization.identifier.type == IdentifierTypes.dns
+                and isinstance(san[0], x509.DNSName)):
+                if challenge.authorization.identifier.value != san[0].value:
+                    return "rejectedIdentifier", f"san is {san[0].value!r}, expected {host!r}"
+            elif (challenge.authorization.identifier.type == IdentifierTypes.ip
+                and isinstance(san[0], x509.IPAddress)):
+                if ip_address(challenge.authorization.identifier.value) != san[0].value:
+                    return "rejectedIdentifier", f"san is {san[0].value!r}, expected {host!r}"
+            else:
+                return "rejectedIdentifier", f"subjectAltName type mismatched"
+        else:
+            # RFC 8737 §3: subjectAltName containing the identifier being validated and no other entries
             san_list = [e.value for e in san]
-            return "rejectedIdentifier", f"san is {san_list!r}, expected {[host]!r}"
+            return "rejectedIdentifier", f"multiple subjectAltNames found: {san_list!r}"
 
         acmeIdentifier = x509.ObjectIdentifier("1.3.6.1.5.5.7.1.31")  # RFC 8737 §6.1
         authorization = ber_parse(
